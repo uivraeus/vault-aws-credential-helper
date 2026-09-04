@@ -7,6 +7,9 @@ echo "Running unit tests (containerized Go toolchain, no real Vault involved)...
 make test
 
 echo "Building ${IMAGE_NAME}..."
+# Deliberately built for the host's own platform (no --platform given), so
+# the smoke tests below can `docker run` it directly. `make image` (used for
+# the actual release) targets linux/amd64 explicitly instead -- see Makefile.
 docker build -t "${IMAGE_NAME}" .
 
 echo "Running container smoke tests (config validation only, still no real Vault)..."
