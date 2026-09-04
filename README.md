@@ -69,11 +69,23 @@ All Go tooling runs inside a pinned `golang` container — no local Go
 installation is required, only Docker.
 
 ```
-make test        # go vet + go test, containerized
-make build       # static linux/amd64 binary in bin/
-make image       # docker build the scratch-based OCI image
-./test.sh        # unit tests + image build + container smoke tests
+make test          # go vet + go test, containerized
+make build         # static linux/amd64 binary in bin/
+make image         # docker build the scratch-based OCI image, targeting linux/amd64
+make image-native   # same, but targeting the host's own platform, so it can be `docker run` here
+./test.sh          # unit tests + native-platform image build + container smoke tests
 ```
+
+The Go builder stage cross-compiles for `linux/amd64` regardless of host
+architecture (no qemu needed to build), but running the resulting image
+locally on a non-amd64 host needs `make image-native` (or qemu/binfmt)
+instead of `make image`. CI builds and publishes `linux/amd64` directly,
+since GitHub-hosted runners are already that architecture.
+
+The final image's CA trust store is a pinned bundle vendored in
+[`certs/`](certs/SOURCE.md) rather than one installed via apt at build time,
+so it's identical across builds instead of drifting with Debian's rolling
+security updates.
 
 ## Release
 
