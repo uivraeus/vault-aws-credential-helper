@@ -1,5 +1,110 @@
-# Vault AWS Secrets Credential Helper
+# Vault AWS Credential Helper
 
-Making AWS IAM STS credentials from Vault (/OpenBao) available to to the AWS SDK.
+An AWS [`credential_process`](https://docs.aws.amazon.com/sdkref/latest/guide/feature-process-credentials.html)
+provider backed by HashiCorp Vault (or OpenBao), for pods authenticating via
+their Kubernetes ServiceAccount JWT.
 
-TBD...
+It's invoked fresh on every `credential_process` call: read the pod's own
+ServiceAccount JWT, log in to Vault's Kubernetes auth method, read an AWS
+credential lease from Vault's AWS secrets engine, and print the result as the
+JSON AWS expects. No sidecar, no proactively-refreshing file on disk — this
+only runs (and only talks to Vault) when the AWS SDK/CLI actually needs a
+credential.
+
+Distributed as a minimal, statically-linked OCI image (`FROM scratch`, real
+`ENTRYPOINT`) intended to be mounted into pods via Kubernetes' native
+[Image Volume](https://kubernetes.io/docs/tasks/configure-pod-container/image-volumes/)
+feature (KEP-4639), so the app container it's mounted into needs nothing
+installed to use it.
+
+## Usage
+
+```
+vault-aws-credential-helper credential_process [flags]
+```
+
+Configuration is env-var-driven (the natural interface for a subprocess
+invoked by the AWS SDK/CLI from a `credential_process` line in an AWS config
+file), with equivalent flags available as an explicit override for manual
+runs.
+
+| Env var | Flag | Default | Required |
+|---|---|---|---|
+| `VAULT_ADDR` | `-vault-addr` | — | yes |
+| `VAULT_ROLE` | `-vault-role` | — | yes |
+| `VAULT_AWS_SECRETS_PATH` | `-aws-secrets-path` | — | yes |
+| `VAULT_K8S_AUTH_MOUNT` | `-k8s-auth-mount` | `kubernetes` | no |
+| `VAULT_SA_TOKEN_PATH` | `-sa-token-path` | `/var/run/secrets/kubernetes.io/serviceaccount/token` | no |
+| `VAULT_TLS_SKIP_VERIFY` | `-tls-skip-verify` | `false` | no |
+| `VAULT_CACERT` | `-cacert` | — | no |
+| `VAULT_TIMEOUT` | `-timeout` | `10s` | no |
+
+- `VAULT_AWS_SECRETS_PATH` is the **full** Vault path to read (e.g.
+  `aws/creds/my-role`) — the AWS secrets engine mount point isn't assumed.
+- TLS certificate verification is **on by default**, trusted against a CA
+  bundle compiled directly into the binary (see [Development](#development)
+  below) — not any OS/filesystem-provided store, since this binary may run
+  inside a container whose root filesystem isn't its own image's (notably
+  when mounted via Image Volume). `VAULT_TLS_SKIP_VERIFY` is an explicit
+  opt-out, not the default. `VAULT_CACERT` (path to a PEM CA bundle) trusts a
+  private/internal CA instead of the embedded bundle without disabling
+  verification — use it whenever Vault's certificate is signed by a CA you
+  control, since the embedded bundle (public CAs only) won't include it. A
+  `VAULT_ADDR` using `http://` bypasses TLS entirely (as in a lab with TLS
+  disabled); the tool prints a one-line stderr warning in that case.
+- On any failure, stdout is left empty and a diagnostic is written to stderr
+  (never including the ServiceAccount JWT, Vault client token, or AWS
+  credentials). Exit code `2` means a configuration/usage error; `1` means
+  any other failure (reading the SA token, Vault login, reading the secret).
+
+### Example AWS config
+
+```ini
+[profile vault]
+credential_process = /mnt/vault-aws-credential-helper/vault-aws-credential-helper credential_process
+```
+
+with `VAULT_ADDR`, `VAULT_ROLE`, and `VAULT_AWS_SECRETS_PATH` set on the
+container via the pod spec.
+
+## Development
+
+All Go tooling runs inside a pinned `golang` container — no local Go
+installation is required, only Docker.
+
+```
+make test          # go vet + go test, containerized
+make build         # static linux/amd64 binary in bin/
+make image         # docker build the scratch-based OCI image, targeting linux/amd64
+make image-native   # same, but targeting the host's own platform, so it can be `docker run` here
+./test.sh          # unit tests + native-platform image build + container smoke tests
+```
+
+The Go builder stage cross-compiles regardless of host architecture (no qemu
+needed to build), but running an image locally needs it built for the host's
+own platform, hence `make image-native`. Released images published by CI are
+multi-arch (`linux/amd64` + `linux/arm64`) — see
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml); `make image` itself
+stays single-platform (`linux/amd64` by default, override with `PLATFORM=`),
+since it's meant for local dev/test rather than for producing a release
+artifact.
+
+The tool's default CA trust store ([curl's extract of Mozilla's CA root
+store](https://curl.se/docs/caextract.html) — a well-defined source
+purpose-built for a system with no CA bundle of its own) is fetched fresh at
+every build and compiled directly into the binary via `go:embed`
+(`internal/vault/certs.go`), rather than pinned to a version vendored in the
+repo or placed in the final image's own filesystem. The latter wouldn't
+actually work: under Image Volume mounting, this binary runs inside another
+container's root filesystem, so a CA bundle living only at some path in this
+image would never be reachable at runtime — trust roots need to travel with
+the binary itself. `make build`/`make test`/`make vet` fetch it the same way
+the Dockerfile does (see `fetch-cacert` in the Makefile), so a plain checkout
+needs Docker to build or test, same as everything else here.
+
+## Release
+
+Tagging a commit `vX.Y.Z` (or `X.Y.Z`) publishes
+`ghcr.io/uivraeus/vault-aws-credential-helper:X.Y.Z` (plus `X.Y` and
+`vX.Y.Z` aliases); pushes to `main` publish `:latest`. See
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml).
