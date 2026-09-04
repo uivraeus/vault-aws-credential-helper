@@ -14,25 +14,34 @@ GOOS        ?= linux
 GOARCH      ?= amd64
 PLATFORM    ?= $(GOOS)/$(GOARCH)
 
+CACERT_URL  ?= https://curl.se/ca/cacert.pem
+CACERT_FILE := internal/vault/cacert.pem
+
 DOCKER_GO := docker run --rm \
 	-v "$(CURDIR)":/src -w /src \
 	-u "$$(id -u):$$(id -g)" \
 	-e HOME=/tmp -e GOCACHE=/tmp/gocache -e GOPATH=/tmp/gopath \
 	$(GO_IMAGE)
 
-.PHONY: all build test vet fmt fmt-check image image-native clean
+.PHONY: all build test vet fmt fmt-check image image-native clean fetch-cacert
 
 all: fmt-check vet test build
 
-build:
+# internal/vault/certs.go go:embeds this; it's fetched, not vendored, so
+# build/test always compile against the current bundle -- same as the
+# Dockerfile's own ADD step, which this mirrors for non-Docker-build paths.
+fetch-cacert:
+	$(DOCKER_GO) curl -fsSL -o $(CACERT_FILE) $(CACERT_URL)
+
+build: fetch-cacert
 	mkdir -p $(BIN_DIR)
 	$(DOCKER_GO) env CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) \
 		go build -trimpath -ldflags="-s -w" -o $(BIN_DIR)/$(IMAGE_NAME) ./cmd/$(IMAGE_NAME)
 
-test:
+test: fetch-cacert
 	$(DOCKER_GO) go test ./...
 
-vet:
+vet: fetch-cacert
 	$(DOCKER_GO) go vet ./...
 
 fmt:

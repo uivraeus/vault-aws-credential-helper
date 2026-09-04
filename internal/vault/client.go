@@ -40,14 +40,18 @@ type Client struct {
 }
 
 // NewClient builds a Client. TLS certificate verification is enabled unless
-// TLSSkipVerify is set; CACertPath, if set, trusts an additional CA bundle
-// instead of (or alongside) the system roots.
+// TLSSkipVerify is set. By default, the trust root is the CA bundle embedded
+// in the binary at build time (see certs.go) rather than any OS-provided
+// store, since this binary's filesystem context at runtime isn't guaranteed
+// (see certs.go for why). CACertPath, if set, trusts a different bundle
+// instead -- typically a private/internal CA that the embedded public bundle
+// wouldn't include.
 func NewClient(opts Options) (*Client, error) {
 	tlsConfig := &tls.Config{}
-	if opts.TLSSkipVerify {
+	switch {
+	case opts.TLSSkipVerify:
 		tlsConfig.InsecureSkipVerify = true
-	}
-	if opts.CACertPath != "" {
+	case opts.CACertPath != "":
 		pemBytes, err := os.ReadFile(opts.CACertPath)
 		if err != nil {
 			return nil, fmt.Errorf("reading CA cert: %w", err)
@@ -55,6 +59,12 @@ func NewClient(opts Options) (*Client, error) {
 		pool := x509.NewCertPool()
 		if !pool.AppendCertsFromPEM(pemBytes) {
 			return nil, fmt.Errorf("no valid certificates found in %s", opts.CACertPath)
+		}
+		tlsConfig.RootCAs = pool
+	default:
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(embeddedCACertPEM) {
+			return nil, fmt.Errorf("no valid certificates found in embedded CA bundle")
 		}
 		tlsConfig.RootCAs = pool
 	}

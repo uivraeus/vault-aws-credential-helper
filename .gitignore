@@ -1,0 +1,3 @@
+/bin/
+# Fetched fresh at build/test time (see Dockerfile, Makefile) -- not vendored.
+/internal/vault/cacert.pem

@@ -41,13 +41,17 @@ runs.
 
 - `VAULT_AWS_SECRETS_PATH` is the **full** Vault path to read (e.g.
   `aws/creds/my-role`) — the AWS secrets engine mount point isn't assumed.
-- TLS certificate verification is **on by default**; `VAULT_TLS_SKIP_VERIFY`
-  is an explicit opt-out, not the default. `VAULT_CACERT` (path to a PEM CA
-  bundle) trusts a private/internal CA without disabling verification —
-  prefer it over skip-verify whenever Vault's certificate is signed by a CA
-  you control. A `VAULT_ADDR` using `http://` bypasses TLS entirely (as in a
-  lab with TLS disabled); the tool prints a one-line stderr warning in that
-  case.
+- TLS certificate verification is **on by default**, trusted against a CA
+  bundle compiled directly into the binary (see [Development](#development)
+  below) — not any OS/filesystem-provided store, since this binary may run
+  inside a container whose root filesystem isn't its own image's (notably
+  when mounted via Image Volume). `VAULT_TLS_SKIP_VERIFY` is an explicit
+  opt-out, not the default. `VAULT_CACERT` (path to a PEM CA bundle) trusts a
+  private/internal CA instead of the embedded bundle without disabling
+  verification — use it whenever Vault's certificate is signed by a CA you
+  control, since the embedded bundle (public CAs only) won't include it. A
+  `VAULT_ADDR` using `http://` bypasses TLS entirely (as in a lab with TLS
+  disabled); the tool prints a one-line stderr warning in that case.
 - On any failure, stdout is left empty and a diagnostic is written to stderr
   (never including the ServiceAccount JWT, Vault client token, or AWS
   credentials). Exit code `2` means a configuration/usage error; `1` means
@@ -85,11 +89,18 @@ stays single-platform (`linux/amd64` by default, override with `PLATFORM=`),
 since it's meant for local dev/test rather than for producing a release
 artifact.
 
-The final image's CA trust store is fetched fresh on every build from
-[curl's own extract of Mozilla's CA root store](https://curl.se/docs/caextract.html)
-— a well-defined source purpose-built for a system with no CA bundle of its
-own, kept current at each build rather than pinned to a version installed via
-apt.
+The tool's default CA trust store ([curl's extract of Mozilla's CA root
+store](https://curl.se/docs/caextract.html) — a well-defined source
+purpose-built for a system with no CA bundle of its own) is fetched fresh at
+every build and compiled directly into the binary via `go:embed`
+(`internal/vault/certs.go`), rather than pinned to a version vendored in the
+repo or placed in the final image's own filesystem. The latter wouldn't
+actually work: under Image Volume mounting, this binary runs inside another
+container's root filesystem, so a CA bundle living only at some path in this
+image would never be reachable at runtime — trust roots need to travel with
+the binary itself. `make build`/`make test`/`make vet` fetch it the same way
+the Dockerfile does (see `fetch-cacert` in the Makefile), so a plain checkout
+needs Docker to build or test, same as everything else here.
 
 ## Release
 

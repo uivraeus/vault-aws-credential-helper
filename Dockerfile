@@ -12,20 +12,21 @@ COPY go.mod ./
 COPY cmd ./cmd
 COPY internal ./internal
 
+# Compiled directly into the binary (see internal/vault/certs.go), fetched
+# fresh from a well-defined source (curl's extract of Mozilla's CA root
+# store: https://curl.se/docs/caextract.html) rather than pinned in the repo.
+# This can't instead be a file placed in the final image: when this binary
+# runs via Kubernetes' Image Volume feature, it executes inside *another*
+# container's root filesystem, not this image's, so a CA bundle living only
+# at some path here would never be reachable at runtime.
+ADD https://curl.se/ca/cacert.pem internal/vault/cacert.pem
+
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -trimpath -ldflags="-s -w" -o /out/vault-aws-credential-helper ./cmd/vault-aws-credential-helper
 
-# Final distro-less / scratch image
+# Final distro-less / scratch image -- just the binary, nothing else needed.
 FROM scratch
 
-# A scratch image has no CA bundle of its own; without this, TLS verification
-# against any publicly-trusted CA (the tool's secure default) would fail for
-# everyone not using VAULT_CACERT or VAULT_TLS_SKIP_VERIFY. Fetched fresh on
-# every build from curl's own extract of Mozilla's CA root store -- a
-# well-defined source purpose-built for exactly this case (see
-# https://curl.se/docs/caextract.html), rather than whatever `ca-certificates`
-# apt happens to resolve. BuildKit re-fetches only when the remote changes.
-ADD https://curl.se/ca/cacert.pem /etc/ssl/certs/ca-certificates.crt
 COPY --from=builder /out/vault-aws-credential-helper /vault-aws-credential-helper
 
 ENTRYPOINT ["/vault-aws-credential-helper"]
