@@ -76,11 +76,14 @@ make image-native   # same, but targeting the host's own platform, so it can be 
 ./test.sh          # unit tests + native-platform image build + container smoke tests
 ```
 
-The Go builder stage cross-compiles for `linux/amd64` regardless of host
-architecture (no qemu needed to build), but running the resulting image
-locally on a non-amd64 host needs `make image-native` (or qemu/binfmt)
-instead of `make image`. CI builds and publishes `linux/amd64` directly,
-since GitHub-hosted runners are already that architecture.
+The Go builder stage cross-compiles regardless of host architecture (no qemu
+needed to build), but running an image locally needs it built for the host's
+own platform, hence `make image-native`. Released images published by CI are
+multi-arch (`linux/amd64` + `linux/arm64`) — see
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml); `make image` itself
+stays single-platform (`linux/amd64` by default, override with `PLATFORM=`),
+since it's meant for local dev/test rather than for producing a release
+artifact.
 
 The final image's CA trust store is fetched fresh on every build from
 [curl's own extract of Mozilla's CA root store](https://curl.se/docs/caextract.html)
