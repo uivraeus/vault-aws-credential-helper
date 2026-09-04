@@ -55,6 +55,10 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          # The Dockerfile's builder stage cross-compiles (FROM
+          # --platform=$BUILDPLATFORM + Go's own GOOS/GOARCH), so both
+          # platforms build natively on the amd64 runner -- no qemu needed.
+          platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

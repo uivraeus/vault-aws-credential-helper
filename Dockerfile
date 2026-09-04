@@ -20,10 +20,12 @@ FROM scratch
 
 # A scratch image has no CA bundle of its own; without this, TLS verification
 # against any publicly-trusted CA (the tool's secure default) would fail for
-# everyone not using VAULT_CACERT or VAULT_TLS_SKIP_VERIFY. Vendored from repo
-# rather than apt-installed at build time so the trust root is deterministic
-# across builds -- see certs/SOURCE.md.
-COPY certs/cacert.pem /etc/ssl/certs/ca-certificates.crt
+# everyone not using VAULT_CACERT or VAULT_TLS_SKIP_VERIFY. Fetched fresh on
+# every build from curl's own extract of Mozilla's CA root store -- a
+# well-defined source purpose-built for exactly this case (see
+# https://curl.se/docs/caextract.html), rather than whatever `ca-certificates`
+# apt happens to resolve. BuildKit re-fetches only when the remote changes.
+ADD https://curl.se/ca/cacert.pem /etc/ssl/certs/ca-certificates.crt
 COPY --from=builder /out/vault-aws-credential-helper /vault-aws-credential-helper
 
 ENTRYPOINT ["/vault-aws-credential-helper"]

@@ -82,10 +82,11 @@ locally on a non-amd64 host needs `make image-native` (or qemu/binfmt)
 instead of `make image`. CI builds and publishes `linux/amd64` directly,
 since GitHub-hosted runners are already that architecture.
 
-The final image's CA trust store is a pinned bundle vendored in
-[`certs/`](certs/SOURCE.md) rather than one installed via apt at build time,
-so it's identical across builds instead of drifting with Debian's rolling
-security updates.
+The final image's CA trust store is fetched fresh on every build from
+[curl's own extract of Mozilla's CA root store](https://curl.se/docs/caextract.html)
+— a well-defined source purpose-built for a system with no CA bundle of its
+own, kept current at each build rather than pinned to a version installed via
+apt.
 
 ## Release
 
