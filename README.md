@@ -104,7 +104,8 @@ needs Docker to build or test, same as everything else here.
 
 ## Release
 
-Tagging a commit `vX.Y.Z` (or `X.Y.Z`) publishes
+Tagging a commit `vX.Y.Z` (or `X.Y.Z`) publishes a multi-arch
+(`linux/amd64` + `linux/arm64`) image as
 `ghcr.io/uivraeus/vault-aws-credential-helper:X.Y.Z` (plus `X.Y` and
 `vX.Y.Z` aliases); pushes to `main` publish `:latest`. See
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+[`RELEASE.md`](RELEASE.md) for the full workflow and how to cut a release.
