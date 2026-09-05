@@ -76,12 +76,11 @@ container via the pod spec.
 
 Docker is the only requirement — no local Go install needed. All Go tooling
 runs inside a pinned `golang` container, and the CA bundle described above is
-fetched fresh (needs network access) as part of `build`/`test`/`vet`/`image`,
-same as it is inside the Dockerfile itself.
+fetched fresh (needs network access) as part of `test`/`vet`/`image`, same as
+it is inside the Dockerfile itself.
 
 ```
 make test    # go vet + go test, containerized
-make build   # binary in bin/, targeting linux/amd64 (the deployment platform)
 make image   # docker build the scratch-based OCI image, targeting the host's own platform
 ./test.sh    # unit tests + image build + container smoke tests
 ```
