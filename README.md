@@ -17,6 +17,14 @@ Distributed as a minimal, statically-linked OCI image (`FROM scratch`, real
 feature (KEP-4639), so the app container it's mounted into needs nothing
 installed to use it.
 
+Under Image Volume mounting, this binary actually executes inside the *app
+container's* root filesystem, not its own image's — so its CA trust store
+(for verifying Vault's TLS certificate) can't just be a file shipped in the
+image; it wouldn't be reachable at runtime. Instead it's compiled directly
+into the binary at build time (a fresh copy of
+[curl's extract of Mozilla's CA root store](https://curl.se/docs/caextract.html)),
+so trust roots travel with the binary regardless of where it ends up running.
+
 ## Usage
 
 ```
@@ -41,13 +49,10 @@ runs.
 
 - `VAULT_AWS_SECRETS_PATH` is the **full** Vault path to read (e.g.
   `aws/creds/my-role`) — the AWS secrets engine mount point isn't assumed.
-- TLS certificate verification is **on by default**, trusted against a CA
-  bundle compiled directly into the binary (see [Development](#development)
-  below) — not any OS/filesystem-provided store, since this binary may run
-  inside a container whose root filesystem isn't its own image's (notably
-  when mounted via Image Volume). `VAULT_TLS_SKIP_VERIFY` is an explicit
-  opt-out, not the default. `VAULT_CACERT` (path to a PEM CA bundle) trusts a
-  private/internal CA instead of the embedded bundle without disabling
+- TLS certificate verification is **on by default** against the embedded CA
+  bundle described above. `VAULT_TLS_SKIP_VERIFY` is an explicit opt-out, not
+  the default. `VAULT_CACERT` (path to a PEM CA bundle) trusts a
+  private/internal CA *instead of* the embedded bundle, without disabling
   verification — use it whenever Vault's certificate is signed by a CA you
   control, since the embedded bundle (public CAs only) won't include it. A
   `VAULT_ADDR` using `http://` bypasses TLS entirely (as in a lab with TLS
@@ -69,38 +74,24 @@ container via the pod spec.
 
 ## Development
 
-All Go tooling runs inside a pinned `golang` container — no local Go
-installation is required, only Docker.
+Docker is the only requirement — no local Go install needed. All Go tooling
+runs inside a pinned `golang` container, and the CA bundle described above is
+fetched fresh (needs network access) as part of `build`/`test`/`vet`/`image`,
+same as it is inside the Dockerfile itself.
 
 ```
-make test          # go vet + go test, containerized
-make build         # static linux/amd64 binary in bin/
-make image         # docker build the scratch-based OCI image, targeting linux/amd64
-make image-native   # same, but targeting the host's own platform, so it can be `docker run` here
-./test.sh          # unit tests + native-platform image build + container smoke tests
+make test    # go vet + go test, containerized
+make build   # binary in bin/, targeting linux/amd64 (the deployment platform)
+make image   # docker build the scratch-based OCI image, targeting the host's own platform
+./test.sh    # unit tests + image build + container smoke tests
 ```
 
-The Go builder stage cross-compiles regardless of host architecture (no qemu
-needed to build), but running an image locally needs it built for the host's
-own platform, hence `make image-native`. Released images published by CI are
-multi-arch (`linux/amd64` + `linux/arm64`) — see
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml); `make image` itself
-stays single-platform (`linux/amd64` by default, override with `PLATFORM=`),
-since it's meant for local dev/test rather than for producing a release
-artifact.
-
-The tool's default CA trust store ([curl's extract of Mozilla's CA root
-store](https://curl.se/docs/caextract.html) — a well-defined source
-purpose-built for a system with no CA bundle of its own) is fetched fresh at
-every build and compiled directly into the binary via `go:embed`
-(`internal/vault/certs.go`), rather than pinned to a version vendored in the
-repo or placed in the final image's own filesystem. The latter wouldn't
-actually work: under Image Volume mounting, this binary runs inside another
-container's root filesystem, so a CA bundle living only at some path in this
-image would never be reachable at runtime — trust roots need to travel with
-the binary itself. `make build`/`make test`/`make vet` fetch it the same way
-the Dockerfile does (see `fetch-cacert` in the Makefile), so a plain checkout
-needs Docker to build or test, same as everything else here.
+`make image` is for local dev/testing only (defaults to the host's platform
+so it can be `docker run` directly here; override with e.g.
+`PLATFORM=linux/arm64` to cross-build without running it) — it isn't used by
+the release pipeline. Released images are multi-arch (`linux/amd64` +
+`linux/arm64`), built and published directly by CI; see
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 ## Release
 
