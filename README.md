@@ -23,7 +23,9 @@ container's* root filesystem, not its own image's — so its CA trust store
 image; it wouldn't be reachable at runtime. Instead it's compiled directly
 into the binary at build time (a fresh copy of
 [curl's extract of Mozilla's CA root store](https://curl.se/docs/caextract.html)),
-so trust roots travel with the binary regardless of where it ends up running.
+so trust roots travel with the binary regardless of where it ends up running. This
+embedded trust store can be overridden at runtime via the `VAULT_CACERT` env
+variable (see below).
 
 ## Usage
 
